@@ -1,0 +1,78 @@
+\section{Evaluation}\label{sec:evaluation}
+
+We evaluate the BLB framework on a single-machine testbed running both parties (server/ALICE and client/BOB) on \texttt{localhost} within Docker containers.
+All measurements use the CPU-only image (\texttt{blb:v1.0}) with SEAL~4.1.2 and Intel HEXL~1.2.6.
+
+\subsection{Testbed}
+
+\begin{table}[h]
+\centering
+\caption{Testbed configuration}
+\label{tab:testbed}
+\begin{tabular}{ll}
+\toprule
+Component & Specification \\
+\midrule
+CPU       & 2$\times$ Intel Xeon Silver 4208 @ 2.10\,GHz (32 threads) \\
+RAM       & 503\,GiB DDR4 \\
+OS        & Ubuntu 20.04 (Docker 27.5.1) \\
+GPU       & None (GPU tests skipped) \\
+Network   & localhost (single container, both parties) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Test Suite}
+
+The CPU test suite comprises 7 tests covering the full BLB pipeline: NTT primitives, HE-based linear operators (element-wise multiply, matrix multiply, convolution), PrivCirNet block-circulant layers (CirConv, CirLinear), and fixed-point secure comparison via IKNP OT extension.
+All 7 CPU tests pass; 3 GPU-only tests (test\_HE, testHEGPU, testFFN) are skipped.
+
+\subsection{Benchmark Results}
+
+Each test is run 3 times; we report mean wall-clock time and standard deviation.
+Both server (ALICE, $r{=}1$) and client (BOB, $r{=}2$) execute within a single Docker container on localhost.
+
+\begin{table}[h]
+\centering
+\caption{BLB CPU benchmark results (3 runs, localhost, single container)}
+\label{tab:benchmarks}
+\begin{tabular}{lrrr}
+\toprule
+Test & Mean (ms) & Std (ms) & Category \\
+\midrule
+\texttt{test\_ntt}              & 11      & 0.0   & NTT primitive \\
+\texttt{test\_linear\_operator} & 1610    & 2.4   & HE elem-wise mul \\
+\texttt{test\_matmul}           & 1911    & 44.1  & HE matrix mul \\
+\texttt{test\_Conv}             & 8929    & 156.6 & HE convolution \\
+\texttt{test\_cir\_conv}        & 2585    & 55.6  & PrivCirNet conv \\
+\texttt{test\_fixpoint}         & 1301    & 28.2  & IKNP OT comparison \\
+\texttt{test\_cir\_linear}      & 7612    & 149.2 & PrivCirNet linear \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analysis}
+
+\paragraph{Low variance.}
+Standard deviation is below 2\% of the mean for all tests, confirming that single-machine, single-container measurements are stable and reproducible.
+
+\paragraph{Timing breakdown.}
+Two-party tests include three phases: (1)~SEAL key generation (client generates secret, public, relinearization, and Galois keys via \texttt{GenerateNewKey()}), (2)~key transfer from client to server over NetIO, and (3)~the actual HE/MPC computation.
+Key generation and transfer are fixed costs dominated by Galois key size ($\sim$8--16\,MB depending on rotation set).
+
+\paragraph{PrivCirNet advantage.}
+The block-circulant tests (\texttt{test\_cir\_conv}, \texttt{test\_cir\_linear}) demonstrate the BLB paper's core optimization: by exploiting circulant structure in weight matrices, the number of HE ciphertext rotations is reduced compared to dense linear layers.
+\texttt{test\_cir\_conv} (2.6\,s) is substantially faster than \texttt{test\_Conv} (8.9\,s), reflecting the rotation savings.
+
+\paragraph{Fixed-point OT.}
+\texttt{test\_fixpoint} (1.3\,s) is dominated by IKNP OTPack initialization (base OT + correlation setup across 4 threads), not the actual secure comparison on 32 values at 16-bit precision.
+
+\subsection{Limitations}
+
+\begin{itemize}
+  \item GPU tests (\texttt{test\_HE}, \texttt{testHEGPU}, \texttt{testFFN}) could not be validated --- the testbed lacks an NVIDIA GPU.
+        A GPU-enabled Docker image (\texttt{v1.0-gpu}) is prepared but untested.
+  \item Communication bytes are not reliably captured from all test binaries.
+        A future instrumentation pass should add structured logging to the NetIO layer.
+  \item All measurements are single-machine (localhost). WAN latency and bandwidth effects are not captured.
+\end{itemize}

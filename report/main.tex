@@ -1,0 +1,68 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{microtype}
+
+% ── Hyperref setup ──────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+% ── Listings setup ──────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!30},
+  backgroundcolor=\color{gray!5},
+  columns=fullflexible,
+}
+
+% ── Title ───────────────────────────────────────────────────
+\title{BLB Framework: Docker Benchmarking and Evaluation Report\\[0.5em]
+\large Breaking the Layer Barrier --- Hybrid CKKS+MPC for Private Transformer Inference}
+\author{SEC-LAB-PPDL, Technology Innovation Institute (TII)}
+\date{June 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report documents the Docker-based benchmarking infrastructure, test results, and stability validation for the BLB (Breaking the Layer Barrier) framework~\cite{xu2025breaking}.
+BLB is a hybrid CKKS homomorphic encryption and multi-party computation system for private Transformer inference, published at USENIX Security 2025.
+We present a fully containerized evaluation environment that builds all dependencies from source, runs 7 CPU test binaries covering NTT primitives, HE-based linear operators, PrivCirNet block-circulant layers, and fixed-point secure comparison.
+All tests pass consistently across multiple runs with zero memory errors (ASAN/UBSAN) and cross-validated numerical correctness against Python reference implementations.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ── Sections ────────────────────────────────────────────────
+\input{sections/introduction}
+\input{sections/architecture}
+\input{sections/evaluation}
+\input{sections/stability}
+\input{sections/infrastructure}
+\input{sections/conclusion}
+
+% ── Bibliography ────────────────────────────────────────────
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

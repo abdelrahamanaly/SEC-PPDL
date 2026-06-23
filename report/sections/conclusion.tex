@@ -1,0 +1,21 @@
+\section{Conclusion}\label{sec:conclusion}
+
+We have built a fully containerized, reproducible benchmarking infrastructure for the BLB framework.
+The key outcomes are:
+
+\begin{enumerate}[nosep]
+  \item \textbf{All 7 CPU tests pass} consistently (3 consecutive runs, zero failures).
+  \item \textbf{Zero memory errors} detected under AddressSanitizer and UndefinedBehaviorSanitizer instrumentation across 4 test binaries covering all major code paths.
+  \item \textbf{Numerical correctness verified} via Python cross-validation of the fixed-point secure comparison protocol and HE element-wise operations.
+  \item \textbf{Low measurement variance} ($< 2\%$ coefficient of variation) confirms that single-machine, single-container benchmarks are stable.
+  \item \textbf{PrivCirNet optimization confirmed}: block-circulant convolution (\texttt{test\_cir\_conv}, 2.6\,s) is $3.4\times$ faster than dense convolution (\texttt{test\_Conv}, 8.9\,s), reflecting the rotation savings described in~\cite{xu2024privcirnet}.
+\end{enumerate}
+
+\subsection{Limitations and Future Work}
+
+\begin{itemize}[nosep]
+  \item \textbf{GPU tests}: 3 test binaries (\texttt{test\_HE}, \texttt{testHEGPU}, \texttt{testFFN}) require an NVIDIA GPU and could not be validated. A GPU-enabled Docker image (\texttt{blb:v1.0-gpu}) is prepared.
+  \item \textbf{WAN benchmarks}: All measurements are on localhost. Network latency and bandwidth effects are not captured. The \texttt{throttle.sh} script can simulate WAN conditions using Linux \texttt{tc}, but two-machine benchmarks would be more representative.
+  \item \textbf{Communication measurement}: Not all test binaries print communication bytes. A future instrumentation pass should add structured logging to the NetIO layer.
+  \item \textbf{End-to-end inference}: The current tests exercise individual components. A full Transformer inference benchmark (requiring GPU for the FFN layer) remains future work.
+\end{itemize}

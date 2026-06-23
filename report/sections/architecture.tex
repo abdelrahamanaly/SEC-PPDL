@@ -1,0 +1,70 @@
+\section{Architecture}\label{sec:architecture}
+
+\subsection{Two-Party Protocol Execution Model}
+
+Every two-party test binary accepts three command-line arguments:
+\begin{lstlisting}
+./test_binary r=<role> p=<port> [ip=<address>]
+\end{lstlisting}
+where \texttt{r=1} designates ALICE (server) and \texttt{r=2} designates BOB (client).
+The server opens a TCP socket via NetIO (\texttt{Utils/net\_io\_channel.h}), calls \texttt{listen()}, and performs exactly one \texttt{accept()}.
+After accepting the client connection, the listening socket is closed --- this is a critical design constraint that affects how scripts detect server readiness (Section~\ref{sec:portdetect}).
+
+The protocol proceeds as:
+\begin{enumerate}[nosep]
+  \item BOB generates all SEAL keys: secret key, public key, relinearization keys, and Galois keys (rotation keys for BSGS schedule).
+  \item BOB sends public material to ALICE over the NetIO TCP connection using \texttt{FILE*}-buffered I/O with \texttt{\_IOFBF} (full buffering).
+  \item Both parties execute the HE/MPC computation. For tests involving OT (e.g., \texttt{test\_fixpoint}), an \texttt{IKNPOTPack} with 4 threads is initialized.
+  \item Results are reconstructed on BOB's side.
+\end{enumerate}
+
+\subsection{Single-Container Mode}
+
+For benchmarking on a single machine, both ALICE and BOB run within the same Docker container on \texttt{localhost}:
+\begin{lstlisting}
+# Server in background
+./test_binary r=1 p=1234 &
+# Client connects
+./test_binary r=2 p=1234 ip=127.0.0.1
+\end{lstlisting}
+This eliminates network variability and produces stable, low-variance measurements suitable for comparing relative performance across tests.
+
+\subsection{Port Detection}\label{sec:portdetect}
+
+A subtle but critical issue: the standard approach to checking whether a TCP port is open (\texttt{nc -z host port}) works by opening a TCP connection and immediately closing it.
+Because NetIO performs exactly one \texttt{accept()}, this ``probe'' connection consumes the server's accept slot, causing the real client to receive a connection-refused error.
+
+Our scripts detect server readiness by reading \texttt{/proc/net/tcp} directly:
+\begin{lstlisting}[language=bash]
+hex_port=$(printf '%04X' "$PORT")
+grep -q ":${hex_port} 00000000:0000 0A" /proc/net/tcp
+\end{lstlisting}
+The \texttt{0A} state code indicates TCP LISTEN.
+This is a read-only operation on the kernel's socket table and does not consume the accept.
+
+\subsection{Docker Image Structure}
+
+The CPU image (\texttt{blb:v1.0}) is built from \texttt{ubuntu:22.04} and performs a multi-stage dependency build:
+
+\begin{table}[h]
+\centering
+\caption{Docker image build stages}
+\label{tab:docker-stages}
+\begin{tabular}{llr}
+\toprule
+Stage & Component & Approx.\ Time \\
+\midrule
+1 & System packages (build-essential, cmake, libssl, etc.) & 30\,s \\
+2 & Apply patches (SEAL, emp-tool, emp-ot) & 5\,s \\
+3 & Build Intel HEXL 1.2.6 & 2\,min \\
+4 & Build Microsoft SEAL 4.1.2 (with HEXL) & 3\,min \\
+5 & Build BLB (all libraries + test binaries) & 2\,min \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Scripts are copied from \texttt{docker/v1.0/scripts/} to \texttt{/docker-scripts/} inside the image.
+The \texttt{ENTRYPOINT} is set to \texttt{entrypoint.sh}, which dispatches on the Docker CMD argument (\texttt{test}, \texttt{benchmark}, \texttt{manual}, \texttt{build}, \texttt{bash}, etc.).
+
+A GPU variant (\texttt{blb:v1.0-gpu}) extends this with CUDA 12.2 and PhantomFHE, enabling three additional test binaries (\texttt{test\_HE}, \texttt{testHEGPU}, \texttt{testFFN}).
+This image was prepared but could not be validated due to the absence of an NVIDIA GPU on the testbed.

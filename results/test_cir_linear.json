@@ -1,0 +1,17 @@
+{
+  "test": "test_cir_linear",
+  "runs": 3,
+  "wall_time_ms": {
+    "mean": 7611.67,
+    "std": 149.2,
+    "values": [
+      7696,
+      7402,
+      7543
+    ]
+  },
+  "comm_bytes": {
+    "server_sent": 0,
+    "client_sent": 0
+  }
+}

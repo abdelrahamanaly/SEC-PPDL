@@ -1,0 +1,27 @@
+\section{Introduction}\label{sec:introduction}
+
+The BLB (Breaking the Layer Barrier) framework~\cite{xu2025breaking} implements a hybrid approach to private Transformer inference, combining CKKS homomorphic encryption~\cite{cheon2017ckks} with two-party secure computation (2PC) in a semi-honest security model.
+The system distributes computation between two parties:
+\begin{itemize}[nosep]
+  \item \textbf{ALICE} (server, $r{=}1$): holds the model weights and serves as the HE evaluator.
+  \item \textbf{BOB} (client, $r{=}2$): holds the private input, generates all SEAL encryption keys (secret, public, relinearization, Galois), and sends the public material to ALICE via a TCP connection (NetIO).
+\end{itemize}
+
+The framework builds on two key components:
+\begin{enumerate}[nosep]
+  \item \textbf{Microsoft SEAL 4.1.2}~\cite{seal2024} with Intel HEXL 1.2.6~\cite{hexl2023} for hardware-accelerated CKKS/BFV operations (AVX-512, AVX2).
+  \item \textbf{emp-tool / emp-ot}~\cite{emptoolkit} for IKNP oblivious transfer extension~\cite{iknp2003}, used in fixed-point secure comparison and truncation protocols.
+\end{enumerate}
+
+A central optimization from the PrivCirNet paper~\cite{xu2024privcirnet} replaces dense linear layers with block-circulant matrices, reducing the number of expensive HE ciphertext rotations.
+This is tested by the \texttt{test\_cir\_linear} and \texttt{test\_cir\_conv} binaries.
+
+\subsection{Scope of This Report}
+
+This report covers the Docker-based benchmarking infrastructure we built to evaluate BLB:
+\begin{itemize}[nosep]
+  \item A fully containerized build and test environment (Section~\ref{sec:architecture}).
+  \item Benchmark results for all 7 CPU test binaries (Section~\ref{sec:evaluation}).
+  \item Stability validation: consistency runs, memory sanitizers, and numerical cross-validation (Section~\ref{sec:stability}).
+  \item Infrastructure details: Docker images, CI/CD pipeline, and script inventory (Section~\ref{sec:infrastructure}).
+\end{itemize}
