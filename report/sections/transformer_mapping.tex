@@ -1,0 +1,232 @@
+\section{From Tests to Transformers}\label{sec:transformer}
+
+The BLB test binaries are not standalone benchmarks --- each exercises a specific cryptographic primitive that corresponds to a layer in private Transformer inference.
+This section explains how the test suite maps onto the BERT architecture and what a full private inference pipeline looks like.
+
+\subsection{Private Transformer Inference Pipeline}
+
+A Transformer encoder block (as in BERT~\cite{xu2025breaking}) consists of:
+\begin{enumerate}[nosep]
+  \item \textbf{Multi-Head Self-Attention}: $Q, K, V$ projections (linear), attention scores ($QK^T$), softmax, weighted sum, output projection (linear).
+  \item \textbf{Layer Normalization}: mean, variance, normalize, affine transform.
+  \item \textbf{Feed-Forward Network (FFN)}: linear $\to$ GeLU/SiLU $\to$ linear.
+  \item \textbf{Layer Normalization} (again).
+\end{enumerate}
+
+In BLB's hybrid CKKS+MPC model, each operation is assigned to the most efficient cryptographic backend:
+
+\begin{table}[ht]
+\centering
+\caption{Mapping Transformer operations to BLB cryptographic primitives}
+\label{tab:transformer-mapping}
+\begin{tabular}{p{4cm}p{3.5cm}p{2.5cm}p{3cm}}
+\toprule
+\textbf{Transformer Op} & \textbf{BLB Primitive} & \textbf{Backend} & \textbf{Test Binary} \\
+\midrule
+$Q, K, V$ projections        & CirLinearNest      & HE (CKKS)   & \texttt{test\_cir\_linear} \\
+Attention $QK^T$              & LinearNest (matmul) & HE (CKKS)  & \texttt{test\_matmul} \\
+Attention softmax             & FixPoint comparison  & MPC (OT)   & \texttt{test\_fixpoint} \\
+Attention $\text{softmax} \cdot V$       & LinearNest (matmul) & HE (CKKS) & \texttt{test\_matmul} \\
+Attention output projection   & CirLinearNest      & HE (CKKS)   & \texttt{test\_cir\_linear} \\
+LayerNorm (mean, var, scale)  & FixPoint truncate/round & MPC (OT) & \texttt{test\_fixpoint} \\
+FFN first linear              & CirLinearNest      & HE (CKKS)   & \texttt{test\_cir\_linear} \\
+FFN activation (GeLU)         & ElementWiseMul + FixPoint & HE+MPC & \texttt{test\_linear\_operator} \\
+FFN second linear             & CirLinearNest      & HE (CKKS)   & \texttt{test\_cir\_linear} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The key insight from BLB~\cite{xu2025breaking} is that \textbf{linear layers use HE} (ciphertext rotations on packed polynomials, no communication rounds) while \textbf{nonlinear operations use MPC} (OT-based comparison requires communication but avoids expensive HE bootstrapping).
+This hybrid approach breaks the ``layer barrier'' --- previous systems required HE bootstrapping or MPC round-trips for every layer, but BLB keeps data in the HE domain across multiple linear layers, only switching to MPC for nonlinearities.
+
+\subsection{BERT Model Variants}
+
+Table~\ref{tab:bert-variants} shows the concrete dimensions for BERT variants that BLB targets.
+The test parameters are chosen to match these configurations.
+
+\begin{table}[ht]
+\centering
+\caption{BERT model dimensions and per-block operation counts}
+\label{tab:bert-variants}
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Model} & $L$ & $H$ & $A$ & $d_h$ & $H_{\text{FFN}}$ & \textbf{Params} \\
+\midrule
+BERT-tiny   & 2  & 128   & 2  & 64  & 512    & 4.4\,M \\
+BERT-mini   & 4  & 256   & 4  & 64  & 1024   & 11.2\,M \\
+BERT-small  & 4  & 512   & 8  & 64  & 2048   & 28.8\,M \\
+BERT-medium & 8  & 512   & 8  & 64  & 2048   & 41.4\,M \\
+BERT-base   & 12 & 768   & 12 & 64  & 3072   & 110\,M \\
+BERT-large  & 24 & 1024  & 16 & 64  & 4096   & 340\,M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+{\small $L$ = layers, $H$ = hidden dim, $A$ = attention heads, $d_h = H/A$ = head dim, $H_{\text{FFN}} = 4H$ = FFN intermediate dim.}
+
+\subsection{Test-to-BERT Mapping}
+
+\subsubsection{test\_ntt: Polynomial Foundation}
+
+Every CKKS operation ultimately reduces to NTT (Number Theoretic Transform) on polynomials in the ring $\mathbb{Z}_Q[X]/(X^N+1)$.
+When SEAL evaluates a ciphertext rotation or multiplication, it performs forward NTT, element-wise multiply in the NTT domain, and inverse NTT.
+Intel HEXL accelerates this with AVX-512 SIMD intrinsics.
+
+\textbf{Role in Transformer}: \texttt{test\_ntt} validates the foundation that \emph{every other HE operation} builds on.
+A single BERT-base attention layer with $H{=}768$ involves hundreds of NTT operations for the rotation-based matrix multiplication.
+
+\subsubsection{test\_linear\_operator: HE Element-Wise Computation}
+
+Tests CKKS element-wise operations: $\mathbf{x}^2$ and $\mathbf{x} \odot \mathbf{y}$ on 8192-slot ciphertexts with values in $[-5, 5]$.
+
+\textbf{Role in Transformer}: Element-wise multiply is the primitive for:
+\begin{itemize}[nosep]
+  \item \textbf{GeLU/SiLU activation}: The polynomial approximation $\text{GeLU}(x) \approx c_0 x^4 + c_1 x^3 + c_2 x^2 + c_3 x + c_4$ requires computing $x^2$ and $x^4 = (x^2)^2$ via ciphertext-ciphertext multiplication.
+  BLB's GeLU uses coefficients: $c_0 {=} 0.0208$, $c_1 {=} {-}0.1835$, $c_2 {=} 0.5411$, $c_3 {=} {-}0.0380$, $c_4 {=} 0.0016$.
+  \item \textbf{Attention score scaling}: The $\frac{1}{\sqrt{d_h}}$ scaling factor applied to $QK^T$ scores.
+\end{itemize}
+
+\subsubsection{test\_matmul: Attention Score Computation}
+
+Tests HE matrix multiplication with dimensions $128 \times 64 \times 64$ using the diagonal packing method with BSGS optimization.
+
+\textbf{Role in Transformer}: This directly corresponds to:
+\begin{itemize}[nosep]
+  \item \textbf{Attention scores}: $\text{Attention}(Q,K,V) = \text{softmax}(\frac{QK^T}{\sqrt{d_h}})V$. The $QK^T$ computation is a $(s \times d_h) \times (d_h \times s)$ matmul where $s$ is sequence length.
+        For BERT-tiny: $(128 \times 64) \times (64 \times 128)$.
+  \item \textbf{Weighted value sum}: The $\text{softmax}(\cdot) \times V$ computation is a $(s \times s) \times (s \times d_h)$ matmul.
+\end{itemize}
+
+The test dimensions ($128 \times 64 \times 64$) match BERT-tiny/mini's head dimensions ($d_h {=} 64$) with sequence length 128.
+
+The BSGS optimization reduces rotation count from $O(d)$ to $O(2\sqrt{d})$.
+For $d{=}64$: na\"ive requires 64 rotations, BSGS requires $2 \times 8 = 16$ rotations --- a $4\times$ reduction.
+
+\subsubsection{test\_Conv \& test\_cir\_conv: Dense vs.\ PrivCirNet}
+
+\texttt{test\_Conv} tests standard dense convolution; \texttt{test\_cir\_conv} tests the PrivCirNet block-circulant variant.
+While convolution is primarily a CNN operation, the underlying HE rotation machinery is shared with linear layers.
+
+\textbf{Role in Transformer}:
+\begin{itemize}[nosep]
+  \item \textbf{Vision Transformer (ViT)}: The patch embedding layer is a convolution with kernel size = patch size.
+  \item \textbf{Convolution-based attention}: Some efficient Transformer variants use depthwise convolution instead of attention for local feature extraction.
+  \item \textbf{Rotation benchmark}: \texttt{test\_Conv} is the most rotation-heavy test and establishes the ceiling for HE rotation overhead. The $3.5\times$ speedup of \texttt{test\_cir\_conv} demonstrates the rotation savings from circulant structure.
+\end{itemize}
+
+\subsubsection{test\_cir\_linear: PrivCirNet Linear Layers}
+
+Tests CirLinearNest with dimensions $64 \times 256 \times 256$ and block sizes from 1 to 64.
+
+\textbf{Role in Transformer}: This is the \textbf{most critical test for BERT inference} --- it directly implements:
+\begin{itemize}[nosep]
+  \item \textbf{$Q, K, V$ projections}: Each attention head projects from $H$ to $d_h$. For BERT-tiny: $128 \to 64$.
+        With PrivCirNet, the weight matrix $W_Q \in \mathbb{R}^{H \times d_h}$ is constrained to block-circulant structure, reducing HE rotations.
+  \item \textbf{Output projection}: Concatenated attention heads projected back to $H$.
+  \item \textbf{FFN layers}: The two linear layers in the FFN block ($H \to 4H$ and $4H \to H$).
+        For BERT-tiny: $128 \to 512$ and $512 \to 128$.
+\end{itemize}
+
+The block-circulant structure means each block of the weight matrix is a circulant matrix defined by its first row.
+Multiplication becomes polynomial multiplication in the NTT domain:
+\[
+\mathbf{y}_{\text{block}} = \text{INTT}(\text{NTT}(\mathbf{w}_{\text{row}_0}) \odot \text{NTT}(\mathbf{x}_{\text{block}}))
+\]
+
+The test dimension ($256 \times 256$) matches BERT-mini's hidden dimension.
+Scaling to BERT-base ($768 \times 768$) increases the number of blocks but not the per-block cost.
+
+\subsubsection{test\_fixpoint: Softmax, LayerNorm, and Quantization}
+
+Tests IKNP OT-based fixed-point operations: \texttt{less\_than\_constant}, comparison, truncation, ring-field conversion.
+
+\textbf{Role in Transformer}: These primitives implement every nonlinear operation:
+\begin{itemize}[nosep]
+  \item \textbf{Softmax}: $\text{softmax}(x_i) = \frac{e^{x_i}}{\sum_j e^{x_j}}$.
+        BLB approximates $e^x$ via $(1 + x/64)^{64}$ (repeated squaring in fixed-point).
+        The normalization requires secure comparison (who has the max?) and secure division (truncation).
+  \item \textbf{LayerNorm}: $\text{LN}(x) = \gamma \cdot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta$.
+        Computing $\mu$ (mean) and $\sigma^2$ (variance) requires secure accumulation and division (truncation).
+        The $1/\sqrt{\sigma^2}$ term uses Newton's method with secure comparison for convergence.
+  \item \textbf{GeLU transition}: Before computing $\text{GeLU}(x)$ via polynomial approximation in the HE domain, the input must be converted from MPC ring representation to HE-compatible format (\texttt{Ring2Field} / \texttt{Field2Ring}).
+  \item \textbf{Requantization}: After each linear layer, the output bitwidth grows. \texttt{secure\_round} and \texttt{truncate\_reduce} bring it back to the target precision (e.g., 16-bit), preventing overflow in subsequent layers.
+\end{itemize}
+
+The 16-bit fixed-point representation ($s{=}12$ fractional bits) provides $2^{-12} \approx 0.00024$ resolution, sufficient for BERT inference where activations are typically in $[-4, 4]$.
+
+\subsection{Estimating BERT-tiny Private Inference Time}
+
+Using the benchmark data, we can estimate the time for a single BERT-tiny encoder block ($H{=}128$, $A{=}2$, $d_h{=}64$, $H_{\text{FFN}}{=}512$, $s{=}128$):
+
+\begin{table}[ht]
+\centering
+\caption{Estimated per-block inference time for BERT-tiny (single-machine, localhost)}
+\label{tab:bert-tiny-estimate}
+\begin{tabular}{llrl}
+\toprule
+\textbf{Operation} & \textbf{Primitive} & \textbf{Est.\ Time} & \textbf{Basis} \\
+\midrule
+$Q, K, V$ projections ($\times 3$) & CirLinearNest & $3 \times 7.6\,\text{s}$ & test\_cir\_linear \\
+$QK^T$ per head ($\times 2$) & Matmul & $2 \times 1.9\,\text{s}$ & test\_matmul \\
+Softmax ($\times 2$ heads) & FixPoint & $2 \times 1.3\,\text{s}$ & test\_fixpoint \\
+$\text{Softmax} \cdot V$ ($\times 2$) & Matmul & $2 \times 1.9\,\text{s}$ & test\_matmul \\
+Output projection & CirLinearNest & $7.6\,\text{s}$ & test\_cir\_linear \\
+LayerNorm ($\times 2$) & FixPoint & $2 \times 1.3\,\text{s}$ & test\_fixpoint \\
+FFN linear 1 ($128 \to 512$) & CirLinearNest & $7.6\,\text{s}$ & test\_cir\_linear \\
+GeLU activation & ElementWiseMul + FixPoint & $\sim 3\,\text{s}$ & test\_linear\_op + test\_fixpoint \\
+FFN linear 2 ($512 \to 128$) & CirLinearNest & $7.6\,\text{s}$ & test\_cir\_linear \\
+\midrule
+\textbf{Total per block} & & $\sim$\textbf{63\,s} & \\
+\textbf{Full BERT-tiny (2 blocks)} & & $\sim$\textbf{126\,s} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Important caveats}:
+\begin{itemize}[nosep]
+  \item These are upper-bound estimates: the test parameters do not exactly match BERT-tiny dimensions, and the CirLinearNest test uses $256 \times 256$ (larger than BERT-tiny's $128 \times 128$).
+  \item SEAL key generation is a one-time cost amortized across all layers. The per-block estimate double-counts key generation ($\sim$1.2\,s per HE test).
+  \item With key caching and amortized setup, the actual per-block time would be lower.
+  \item A GPU-accelerated build (PhantomFHE) would significantly reduce HE operation time.
+\end{itemize}
+
+\subsection{Scaling to Larger Models}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    width=0.85\textwidth,
+    height=7cm,
+    ylabel={Estimated inference time (s)},
+    symbolic x coords={BERT-tiny, BERT-mini, BERT-small, BERT-base},
+    xtick=data,
+    ymin=0,
+    bar width=18pt,
+    nodes near coords,
+    every node near coord/.append style={font=\scriptsize},
+    enlarge x limits=0.2,
+    legend style={at={(0.03,0.97)}, anchor=north west, font=\scriptsize},
+]
+\addplot[fill=blue!50, draw=blue!70] coordinates {
+    (BERT-tiny, 126)
+    (BERT-mini, 504)
+    (BERT-small, 1008)
+    (BERT-base, 4536)
+};
+\addlegendentry{CPU (localhost)}
+\end{axis}
+\end{tikzpicture}
+\caption{Estimated full-model private inference time for BERT variants (CPU, single-machine, localhost). Times scale roughly as $O(L \times H^2)$ where $L$ is the number of layers and $H$ is the hidden dimension. These are upper-bound estimates; GPU acceleration and key caching would reduce actual times.}
+\label{fig:bert-scaling}
+\end{figure}
+
+The scaling is approximately:
+\begin{itemize}[nosep]
+  \item \textbf{Linear in $L$} (number of layers): each encoder block is independent.
+  \item \textbf{Quadratic in $H$} (hidden dimension): CirLinearNest operates on $H \times H$ matrices. Doubling $H$ roughly quadruples the per-layer cost because the number of circulant blocks increases as $H^2 / b^2$.
+  \item \textbf{Linear in $s$} (sequence length): attention is $O(s^2 d_h)$ but the BLB matmul packs $s$ into CKKS slots, so the HE cost scales linearly with $s$ up to the slot capacity ($N/2 = 4096$ for $N{=}8192$).
+\end{itemize}
+
+For practical deployment, the BLB paper~\cite{xu2025breaking} targets BERT-tiny and BERT-mini on GPU, where PhantomFHE reduces HE operation time by 10--50$\times$ compared to CPU SEAL.
