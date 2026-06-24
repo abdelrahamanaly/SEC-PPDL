@@ -91,7 +91,7 @@ print('If C++ output shows [less_than_constant] all N cases matched,')
 print('then the MPC protocol correctly implements the comparison.')
 print()
 print('CROSS_VALIDATION: LOGIC VERIFIED')
-"
+" || exit 1
 
 # --- 3. Validate test_linear_operator (HE element-wise multiply) ---
 echo ""

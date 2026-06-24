@@ -11,8 +11,13 @@ TEST="${TEST_NAME:-test_cir_linear}"
 BIN="/blb/build/Test/${TEST}"
 
 echo "Waiting for server at ${SERVER}:${PORT}..."
+# Do NOT use nc -z — it would consume the server's single accept().
+# Instead check /proc/net/tcp for LISTEN state (0A) on the port.
+hex_port=$(printf '%04X' "${PORT}")
 for i in $(seq 1 40); do
-  nc -z "${SERVER}" "${PORT}" 2>/dev/null && break
+  if grep -q ":${hex_port} 00000000:0000 0A" /proc/net/tcp 2>/dev/null; then
+    break
+  fi
   sleep 0.5
 done
 

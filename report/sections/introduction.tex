@@ -15,6 +15,15 @@ The framework builds on two key components:
 
 A central optimization from the PrivCirNet paper~\cite{xu2024privcirnet} replaces dense linear layers with block-circulant matrices, reducing the number of expensive HE ciphertext rotations.
 This is tested by the \texttt{test\_cir\_linear} and \texttt{test\_cir\_conv} binaries.
+The CKKS ring parameters used throughout BLB are $\ell{=}43$ (multiplicative depth), $s{=}13$ (scaling bits), and $\lambda{=}128$ (security parameter), which together determine the polynomial degree and ciphertext size.
+
+\paragraph{Relevance to private LLM inference.}
+Transformer architectures underpin modern large language models---BERT~\cite{devlin2019bert}, GPT~\cite{radford2019gpt2}, and LLaMA~\cite{touvron2023llama}---making private Transformer inference a prerequisite for deploying LLMs on sensitive data.
+BLB evaluates not only BERT-base and BERT-large but also GPT-2 base (12 layers, 768 hidden dimension), demonstrating applicability beyond BERT-family models.
+Communication is the primary bottleneck in these protocols: BLB achieves a $21\times$ communication reduction over BOLT~\cite{pang2024bolt} and $2\times$ over Bumblebee~\cite{lu2023bumblebee}, which is critical because communication volume scales with model parameters and dominates end-to-end latency on realistic networks.
+On the latency front, BLB completes BERT-base private inference in 2.5\,minutes on GPU (6.1\,min on CPU), bringing practical deployment within reach for interactive applications.
+Scaling to larger models---GPT-2 medium (24 layers, 1024 hidden), GPT-2 large (36 layers, 1280 hidden), and LLaMA-7B (32 layers, 4096 hidden)---remains challenging because communication and computation grow super-linearly with hidden dimension.
+BLB's \emph{FineGrainFusion} technique addresses part of this challenge by eliminating inter-layer truncation rounds, fusing nonlinear operations across layers to reduce the number of 2PC communication rounds.
 
 \subsection{Scope of This Report}
 

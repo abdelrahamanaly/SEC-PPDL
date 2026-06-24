@@ -449,9 +449,126 @@ Every two-party test includes three sequential phases:
 \label{fig:cv-analysis}
 \end{figure}
 
+\subsection{Comparison with Published Results}\label{sec:comparison}
+
+The BLB paper reports end-to-end inference timings for full Transformer models (BERT-base, BERT-large, GPT2-base) under realistic network conditions.
+We reproduce these results here (from Table~9 of the paper) and contextualize the gap between our local primitive-level benchmarks and the paper's system-level numbers.
+
+\subsubsection{Paper's Experimental Setup}
+
+The published BLB results were obtained on substantially different hardware and network conditions than our testbed:
+
+\begin{table}[ht]
+\centering
+\caption{Hardware and network comparison: our testbed vs.\ the BLB paper}
+\label{tab:hw-comparison}
+\begin{tabular}{lll}
+\toprule
+ & \textbf{Our Testbed} & \textbf{BLB Paper} \\
+\midrule
+CPU & Xeon Silver 4208 @ 2.1\,GHz & Xeon Platinum 8558P @ 2.7\,GHz \\
+Threads & 32 & 64 \\
+GPU & None & NVIDIA A100 \\
+Network & Localhost ($\sim$42\,$\mu$s RTT) & LAN / WAN (see below) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The paper evaluates four network settings:
+\begin{itemize}[nosep]
+  \item \textbf{LAN}: 1\,Gbps bandwidth, 0.3\,ms RTT
+  \item \textbf{WAN1}: 400\,Mbps bandwidth, 4\,ms RTT
+  \item \textbf{WAN2}: 100\,Mbps bandwidth, 4\,ms RTT
+  \item \textbf{WAN3}: 100\,Mbps bandwidth, 80\,ms RTT
+\end{itemize}
+
+\subsubsection{End-to-End Inference Results (Table~9)}
+
+Table~\ref{tab:paper-e2e} reproduces the paper's end-to-end two-party inference timings for full Transformer models.
+BLB is compared against BOLT~\cite{pang2024bolt}, Bumblebee~\cite{lu2023bumblebee}, and Iron~\cite{iron2022}.
+
+\begin{table}[ht]
+\centering
+\caption{Published end-to-end 2PC inference times (from BLB Table~9). All times in minutes; communication in GB. ``/'' indicates data not reported.}
+\label{tab:paper-e2e}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Model (tokens)} & \textbf{Protocol} & \textbf{LAN} & \textbf{WAN2} & \textbf{WAN3} & \textbf{Comm (GB)} \\
+\midrule
+\multirow{2}{*}{GPT2-base (64)}
+  & BLB CPU  & 4.0  & 6.8   & 10.2  & 1.5  \\
+  & BLB GPU  & 2.0  & 3.9   & 8.1   & 1.5  \\
+\midrule
+\multirow{5}{*}{BERT-base (128)}
+  & BLB CPU    & 6.1   & 10.5  & 17.2   & 3.0   \\
+  & BLB GPU    & 2.5   & 6.6   & 13.2   & 3.0   \\
+  & BOLT       & 22.1  & 85.0  & 130.0  & 63.6  \\
+  & Bumblebee  & 5.0   & 12.3  & 22.1   & 5.8   \\
+  & Iron       & 66.7  & /     & /      & /     \\
+\midrule
+\multirow{4}{*}{BERT-large (128)}
+  & BLB CPU    & 15.1  & 29.0  & 37.7   & 7.8   \\
+  & BLB GPU    & 6.6   & 16.2  & 24.9   & 7.8   \\
+  & BOLT       & 57.6  & 222.0 & 274.4  & 158.9 \\
+  & Bumblebee  & 10.6  & 32.4  & 51.3   & 15.2  \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Key observations from the published results:
+\begin{itemize}[nosep]
+  \item BLB GPU achieves a \textbf{2--2.5$\times$ speedup} over BLB CPU on LAN, with the gap narrowing under WAN conditions as network latency dominates.
+  \item BLB CPU is competitive with Bumblebee on BERT-base (6.1\,min vs.\ 5.0\,min on LAN) while using \textbf{48\% less communication} (3.0\,GB vs.\ 5.8\,GB).
+  \item Under high-latency WAN3 conditions, BLB's communication advantage becomes decisive: BLB CPU runs BERT-base in 17.2\,min vs.\ BOLT's 130.0\,min ($7.6\times$ faster).
+  \item BERT-large end-to-end takes 15.1\,min (BLB CPU) to 6.6\,min (BLB GPU) on LAN, vs.\ 57.6\,min for BOLT --- a $3.8$--$8.7\times$ improvement.
+\end{itemize}
+
+\subsubsection{Communication Breakdown (Figure~11)}
+
+The BLB paper's Figure~11 provides a detailed communication breakdown for BERT-base inference, highlighting the sources of BLB's communication savings:
+
+\begin{table}[ht]
+\centering
+\caption{Communication reduction in BERT-base inference (from BLB Figure~11)}
+\label{tab:comm-breakdown}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Comparison} & \textbf{Baseline} & \textbf{BLB} & \textbf{Reduction} \\
+\midrule
+IKNP OT: BOLT $\to$ BLB          & 63.6\,GB & 15.0\,GB & $4.2\times$ \\
+VOLE OT: Bumblebee $\to$ BLB     & 5.8\,GB  & 3.0\,GB  & $1.9\times$ \\
+Truncation overhead               & non-zero & 0\,GB    & 100\% eliminated \\
+HE/MPC conversion overhead        & baseline & --       & 55\% reduction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+BLB's communication savings come from three architectural innovations:
+\begin{enumerate}[nosep]
+  \item \textbf{Truncation-free fixed-point arithmetic}: BLB performs all CKKS computations in the HE domain and converts to secret shares only for nonlinear layers, completely eliminating the truncation protocol overhead that dominates BOLT's communication.
+  \item \textbf{PrivCirNet block-circulant structure}: Reduces the number of HE ciphertext rotations, which in turn reduces the volume of key-switching material that must be communicated.
+  \item \textbf{Optimized HE-to-MPC conversion}: The share-conversion protocol transfers only the necessary secret-share components, reducing conversion overhead by 55\% compared to prior approaches.
+\end{enumerate}
+
+\subsubsection{Bridging Our Benchmarks to Published Numbers}
+
+Our local measurements (Section~\ref{tab:benchmarks}) exercise individual cryptographic primitives, not full Transformer inference.
+The gap between our measurements and the paper's results is explained by several factors:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Scope}: Our tests measure single operations (one HE matmul, one OT comparison batch). A BERT-base forward pass comprises 12 Transformer blocks, each containing attention (4 matmuls + softmax), layer normalization, and a 2-layer FFN --- hundreds of HE and OT operations in sequence.
+  \item \textbf{Hardware}: The Xeon Platinum 8558P (2.7\,GHz, 64 threads) used in the paper is substantially faster than our Xeon Silver 4208 (2.1\,GHz, 32 threads), providing roughly $2\times$ the computational throughput for parallelizable HE operations.
+  \item \textbf{GPU acceleration}: The paper's GPU results use an NVIDIA A100 for HE polynomial arithmetic via PhantomFHE, achieving 2--2.5$\times$ additional speedup. We have no GPU and cannot run the GPU code paths (\texttt{test\_HE}, \texttt{testHEGPU}, \texttt{testFFN}).
+  \item \textbf{Network}: Our localhost measurements (42\,$\mu$s RTT) do not capture the communication overhead that is a major factor under WAN conditions. The paper's WAN3 setting (100\,Mbps, 80\,ms RTT) adds minutes of network transfer time for multi-GB communication volumes.
+  \item \textbf{Extrapolation}: A rough lower-bound estimate for BERT-base on our hardware: 12 blocks $\times$ ($\sim$4 matmuls at 1.9\,s + OT nonlinear at $\sim$1.3\,s) $\approx$ 107\,s $\approx$ 1.8\,min of pure computation. The paper reports 6.1\,min on LAN with faster hardware, suggesting significant additional overhead from key management, share conversion, and protocol coordination not captured by our isolated tests.
+\end{enumerate}
+
 \subsection{Limitations}
 
 \begin{itemize}[nosep]
+  \item \textbf{Primitive-level only}: Our benchmarks measure individual cryptographic primitives on a single machine, not end-to-end Transformer inference. The published BLB results use different hardware (Xeon Platinum 8558P + A100 GPU) and measure full BERT/GPT2 inference across realistic network conditions.
   \item \textbf{GPU tests}: \texttt{test\_HE}, \texttt{testHEGPU}, and \texttt{testFFN} require an NVIDIA GPU and could not be validated. A GPU-enabled Docker image (\texttt{v1.0-gpu}) is prepared but untested.
   \item \textbf{Communication bytes}: Only \texttt{test\_fixpoint} reliably reports communication volume. The other tests do not print the \texttt{total data sent} line, so communication overhead for HE operations is not captured. A future instrumentation pass should add structured logging to the NetIO layer.
   \item \textbf{Localhost only}: All measurements are on loopback (RTT $\approx 42\,\mu$s). WAN latency and bandwidth effects are not captured. The \texttt{throttle.sh} utility can simulate WAN conditions, but true two-machine benchmarks with the aldebaran--maia link (RTT $\approx 203\,\mu$s) would be more informative.

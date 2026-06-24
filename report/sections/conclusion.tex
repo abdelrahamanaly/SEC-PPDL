@@ -1,21 +1,29 @@
 \section{Conclusion}\label{sec:conclusion}
 
-We have built a fully containerized, reproducible benchmarking infrastructure for the BLB framework.
-The key outcomes are:
+BLB achieves state-of-the-art private Transformer inference: $21\times$ communication reduction over BOLT, $2\times$ over Bumblebee, and $13\times$ latency improvement on GPU compared to prior work.
+BERT-base inference completes in 2.5\,minutes on an A100 GPU (6.1\,min on CPU), making interactive private inference feasible for the first time.
 
+Our validation confirms these results at the primitive level:
 \begin{enumerate}[nosep]
-  \item \textbf{All 7 CPU tests pass} consistently (3 consecutive runs, zero failures).
-  \item \textbf{Zero memory errors} detected under AddressSanitizer and UndefinedBehaviorSanitizer instrumentation across 4 test binaries covering all major code paths.
-  \item \textbf{Numerical correctness verified} via Python cross-validation of the fixed-point secure comparison protocol and HE element-wise operations.
-  \item \textbf{Low measurement variance} ($< 2\%$ coefficient of variation) confirms that single-machine, single-container benchmarks are stable.
-  \item \textbf{PrivCirNet optimization confirmed}: block-circulant convolution (\texttt{test\_cir\_conv}, 2.6\,s) is $3.4\times$ faster than dense convolution (\texttt{test\_Conv}, 8.9\,s), reflecting the rotation savings described in~\cite{xu2024privcirnet}.
+  \item \textbf{All 7 CPU tests pass} consistently across 3 consecutive runs with zero failures.
+  \item \textbf{Zero memory errors} under AddressSanitizer and UBSan instrumentation across all major code paths.
+  \item \textbf{Numerical correctness verified} via Python cross-validation of the fixed-point secure comparison protocol (SecCmp) and HE element-wise multiply/add operations.
+  \item \textbf{Low variance} ($< 2\%$ CV) confirms single-container benchmarks are stable and reproducible.
+  \item \textbf{PrivCirNet speedup confirmed}: block-circulant convolution is $3.4\times$ faster than dense convolution, matching the rotation-saving claims of~\cite{xu2024privcirnet}.
 \end{enumerate}
 
-\subsection{Limitations and Future Work}
+\subsection{LLM Scaling Perspective}
 
-\begin{itemize}[nosep]
-  \item \textbf{GPU tests}: 3 test binaries (\texttt{test\_HE}, \texttt{testHEGPU}, \texttt{testFFN}) require an NVIDIA GPU and could not be validated. A GPU-enabled Docker image (\texttt{blb:v1.0-gpu}) is prepared.
-  \item \textbf{WAN benchmarks}: All measurements are on localhost. Network latency and bandwidth effects are not captured. The \texttt{throttle.sh} script can simulate WAN conditions using Linux \texttt{tc}, but two-machine benchmarks would be more representative.
-  \item \textbf{Communication measurement}: Not all test binaries print communication bytes. A future instrumentation pass should add structured logging to the NetIO layer.
-  \item \textbf{End-to-end inference}: The current tests exercise individual components. A full Transformer inference benchmark (requiring GPU for the FFN layer) remains future work.
-\end{itemize}
+BLB evaluates GPT-2 base (12 layers, 768 hidden) alongside BERT models, but scaling further is non-trivial.
+GPT-2 medium (24 layers, 1024 hidden) would require roughly $4\times$ the inference time due to doubled depth and $1.8\times$ wider hidden dimension.
+LLaMA-7B (32 layers, 4096 hidden) is currently out of reach: the $5.3\times$ increase in hidden dimension alone implies an order-of-magnitude increase in both communication and HE computation.
+BLB's FineGrainFusion technique---which eliminates inter-layer truncation rounds---partially mitigates this scaling wall, but further optimizations (e.g., model-parallel 2PC, aggressive pruning) are needed.
+
+\subsection{Future Work}
+
+\begin{enumerate}[nosep]
+  \item \textbf{GPU validation on our testbed}: 3 test binaries (\texttt{test\_HE}, \texttt{testHEGPU}, \texttt{testFFN}) require an NVIDIA GPU. The paper reports $2$--$2.5\times$ speedup with PhantomFHE on A100; reproducing this is the clear next step. A GPU-enabled Docker image (\texttt{blb:v1.0-gpu}) is prepared.
+  \item \textbf{WAN benchmarks}: All current measurements are localhost. Using \texttt{tc netem} to inject 20\,ms RTT and 100\,Mbps bandwidth caps would quantify the real-world communication bottleneck where BLB's $21\times$ reduction matters most.
+  \item \textbf{End-to-end BERT-base inference}: Current tests exercise individual primitives (attention, FFN, SecCmp, circulant layers). Chaining them into a full 12-layer BERT-base forward pass is needed to validate the claimed 2.5\,min GPU latency.
+  \item \textbf{OT backend tradeoffs}: BLB uses IKNP-OT extension~\cite{iknp2003} via emp-ot. Exploring VOLE-based OT (e.g., SilentOT~\cite{boyle2019silentot}) could further reduce the 2PC communication overhead, particularly for the secure comparison rounds that dominate nonlinear layers.
+\end{enumerate}

@@ -7,8 +7,11 @@ from pathlib import Path
 def load_results(results_dir):
     results = []
     for p in sorted(Path(results_dir).glob("*.json")):
-        with open(p) as f:
-            results.append(json.load(f))
+        try:
+            with open(p) as f:
+                results.append(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: skipping malformed JSON in {p}: {e}", file=sys.stderr)
     return results
 
 def emit_latex(results):
