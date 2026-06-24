@@ -1,0 +1,35 @@
+# BLB Docker build context exclusions
+# The build context is the BLB repo root (docker-compose.yml sets context: ../..)
+
+# Git metadata (large, not needed inside container)
+.git
+.gitmodules
+
+# Build artifacts from host (container builds its own)
+build/
+Extern/hexl/build/
+Extern/hexl/hexl_build/
+Extern/SEAL/build/
+Extern/emp-tool/build/
+Extern/emp-ot/build/
+Extern/phantom-fhe/build/
+
+# Python caches
+**/__pycache__
+**/*.pyc
+.venv/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CI artifacts
+results/
+logs/
+
+# Documentation (not needed in image)
+*.md
+!docker/v1.0/scripts/*.sh

@@ -1,0 +1,73 @@
+\section{Stability Validation}\label{sec:stability}
+
+We performed three categories of validation to confirm that the test results are reliable and the underlying code is correct.
+
+\subsection{Consistency Runs}
+
+The full CPU test suite was executed 3 consecutive times in the same container, with identical configuration:
+
+\begin{table}[h]
+\centering
+\caption{Consistency run results}
+\label{tab:consistency}
+\begin{tabular}{lccc}
+\toprule
+Run & Passed & Failed & Skipped (GPU) \\
+\midrule
+1/3 & 7 & 0 & 3 \\
+2/3 & 7 & 0 & 3 \\
+3/3 & 7 & 0 & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No non-determinism, port conflicts, or state leakage between runs was observed.
+The low benchmark variance (Table~\ref{tab:benchmarks}) further supports measurement stability.
+
+\subsection{Memory Sanitizer Analysis (ASAN/UBSAN)}
+
+The BLB codebase was rebuilt from source with AddressSanitizer and UndefinedBehaviorSanitizer instrumentation:
+\begin{lstlisting}[language=bash]
+cmake -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined
+  -fno-omit-frame-pointer"
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+\end{lstlisting}
+
+Runtime options: \texttt{ASAN\_OPTIONS=detect\_leaks=0} (SEAL's static allocations produce false-positive leak reports) and \texttt{UBSAN\_OPTIONS=print\_stacktrace=1}.
+
+\begin{table}[h]
+\centering
+\caption{ASAN/UBSAN results}
+\label{tab:asan}
+\begin{tabular}{lcc}
+\toprule
+Test & Exit Code & Sanitizer Errors \\
+\midrule
+\texttt{test\_ntt} & 0 & None \\
+\texttt{test\_linear\_operator} & server=0, client=0 & None \\
+\texttt{test\_fixpoint} & server=0, client=0 & None \\
+\texttt{test\_matmul} & server=0, client=0 & None \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These four tests cover all major code paths: HEXL-accelerated NTT, SEAL CKKS operations, emp-ot IKNP extension, and HE matrix operations.
+No heap buffer overflows, use-after-free, double-free, signed integer overflow, or null pointer dereferences were detected.
+
+\subsection{Numerical Cross-Validation}
+
+To verify that the MPC protocols produce cryptographically correct results (not merely non-crashing), we cross-validated C++ test output against Python reference implementations.
+
+\paragraph{Fixed-point comparison (\texttt{test\_fixpoint}).}
+The C++ test executes \texttt{less\_than\_constant(x, 3, bitwidth=16)} on 32 random values using the IKNP OT protocol, with results XOR-shared between the two parties and reconstructed on BOB's side.
+A Python reference validates the logic for signed 16-bit two's complement representation:
+\begin{itemize}[nosep]
+  \item Values in $[0, 32767]$ are positive; values in $[32768, 65535]$ represent negative numbers.
+  \item \texttt{less\_than\_constant(x, 3)} returns 1 iff $\text{signed}(x) < 3$.
+  \item Edge cases: $0 < 3$ (true), $3 < 3$ (false), $65535 = -1 < 3$ (true), $32768 = -32768 < 3$ (true).
+\end{itemize}
+All 32 cases matched between C++ and Python.
+
+\paragraph{HE element-wise multiply (\texttt{test\_linear\_operator}).}
+The test computes $x^2$ and $x \times y$ element-wise on 8192 CKKS slots with signed inputs in $[-5, 5]$.
+Both operations pass: reconstructed ciphertext values match expected plaintext values.

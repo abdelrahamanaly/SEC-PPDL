@@ -1,0 +1,58 @@
+# ── BLB v1.0 Docker Compose ──────────────────────────────────
+# Requires linux/amd64 (x86_64).
+# On Apple Silicon / ARM hosts add:  DOCKER_DEFAULT_PLATFORM=linux/amd64
+# or pass  --platform linux/amd64  to docker compose.
+#
+# Usage:
+#   docker compose up --build          # build image + run all tests
+#   docker compose run blb bash        # drop into a shell
+#   docker compose run blb build       # only rebuild BLB (deps already built)
+
+x-blb-common: &blb-common
+  image: ${IMAGE_TAG:-blb:v1.0}
+  build:
+    context: ../..          # BLB root
+    dockerfile: docker/v1.0/Dockerfile
+    platforms:
+      - linux/amd64
+    args:
+      BUILD_JOBS: ${BUILD_JOBS:-0}
+  environment:
+    BLB_PORT: ${BLB_PORT:-1234}
+    BLB_SERVER_IP: ${BLB_SERVER_IP:-127.0.0.1}
+    TEST_TIMEOUT: ${TEST_TIMEOUT:-600}
+  working_dir: /blb
+
+services:
+  # ── All-in-one: build + test (single container, both parties on localhost)
+  blb:
+    <<: *blb-common
+    container_name: blb_test
+    command: test
+
+  # ── Two-container mode: useful for network-level testing or debugging
+  # Start server first, then client.
+  blb-server:
+    <<: *blb-common
+    container_name: blb_server
+    command: server
+    networks:
+      - blb-net
+    environment:
+      BLB_PORT: ${BLB_PORT:-1234}
+
+  blb-client:
+    <<: *blb-common
+    container_name: blb_client
+    command: client
+    depends_on:
+      - blb-server
+    networks:
+      - blb-net
+    environment:
+      BLB_PORT: ${BLB_PORT:-1234}
+      BLB_SERVER_IP: blb-server   # resolve via docker DNS
+
+networks:
+  blb-net:
+    driver: bridge
