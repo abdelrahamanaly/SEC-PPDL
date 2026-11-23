@@ -1,0 +1,56 @@
+# ── BLB v1.0-gpu Docker Compose ─────────────────────────────
+# Requires: linux/amd64 with NVIDIA GPU (compute capability >= 7.0)
+# Prerequisites: nvidia-container-toolkit installed on host
+
+x-blb-common: &blb-common
+  image: ${IMAGE_TAG:-blb:v1.0-gpu}
+  build:
+    context: ../..
+    dockerfile: docker/v1.0-gpu/Dockerfile
+    platforms:
+      - linux/amd64
+    args:
+      BUILD_JOBS: ${BUILD_JOBS:-0}
+  environment:
+    BLB_PORT: ${BLB_PORT:-1234}
+    BLB_SERVER_IP: ${BLB_SERVER_IP:-127.0.0.1}
+    TEST_TIMEOUT: ${TEST_TIMEOUT:-600}
+  working_dir: /blb
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+services:
+  blb:
+    <<: *blb-common
+    container_name: blb_gpu_test
+    command: test
+
+  blb-server:
+    <<: *blb-common
+    container_name: blb_gpu_server
+    command: server
+    networks:
+      - blb-net
+    environment:
+      BLB_PORT: ${BLB_PORT:-1234}
+
+  blb-client:
+    <<: *blb-common
+    container_name: blb_gpu_client
+    command: client
+    depends_on:
+      - blb-server
+    networks:
+      - blb-net
+    environment:
+      BLB_PORT: ${BLB_PORT:-1234}
+      BLB_SERVER_IP: blb-server
+
+networks:
+  blb-net:
+    driver: bridge

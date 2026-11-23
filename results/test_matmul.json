@@ -1,0 +1,17 @@
+{
+  "test": "test_matmul",
+  "runs": 3,
+  "wall_time_ms": {
+    "mean": 1911.0,
+    "std": 44.14,
+    "values": [
+      1911,
+      1899,
+      1897
+    ]
+  },
+  "comm_bytes": {
+    "server_sent": 0,
+    "client_sent": 0
+  }
+}

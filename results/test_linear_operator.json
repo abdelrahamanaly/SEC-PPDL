@@ -1,0 +1,17 @@
+{
+  "test": "test_linear_operator",
+  "runs": 3,
+  "wall_time_ms": {
+    "mean": 1609.67,
+    "std": 2.36,
+    "values": [
+      1613,
+      1608,
+      1608
+    ]
+  },
+  "comm_bytes": {
+    "server_sent": 0,
+    "client_sent": 0
+  }
+}

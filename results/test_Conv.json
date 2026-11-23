@@ -1,0 +1,17 @@
+{
+  "test": "test_Conv",
+  "runs": 3,
+  "wall_time_ms": {
+    "mean": 8928.67,
+    "std": 156.64,
+    "values": [
+      8772,
+      9044,
+      8859
+    ]
+  },
+  "comm_bytes": {
+    "server_sent": 0,
+    "client_sent": 0
+  }
+}

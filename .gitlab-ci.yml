@@ -1,0 +1,58 @@
+stages:
+  - build
+  - test
+  - report
+
+variables:
+  DOCKER_DRIVER: overlay2
+  IMAGE_TAG: "blb:${CI_COMMIT_SHORT_SHA}"
+
+# ── Build ────────────────────────────────────────────────────
+build:
+  stage: build
+  tags: [docker, amd64]
+  script:
+    - cd docker/v1.0
+    - IMAGE_TAG=${IMAGE_TAG} docker compose build
+  timeout: 30m
+
+# ── CPU Tests ────────────────────────────────────────────────
+test-cpu:
+  stage: test
+  tags: [docker, amd64]
+  needs: [build]
+  script:
+    - cd docker/v1.0
+    - mkdir -p logs
+    - IMAGE_TAG=${IMAGE_TAG} docker compose run -e TEST_TIMEOUT=600 blb test 2>&1 | tee logs/cpu_tests.log
+    - grep -q "0 failed" logs/cpu_tests.log
+  after_script:
+    - cd docker/v1.0
+    - docker compose down --remove-orphans 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - docker/v1.0/logs/
+    expire_in: 1 week
+  timeout: 45m
+
+# ── GPU Tests (manual, optional) ─────────────────────────────
+test-gpu:
+  stage: test
+  tags: [docker, amd64, gpu]
+  needs: [build]
+  allow_failure: true
+  when: manual
+  script:
+    - cd docker/v1.0-gpu
+    - mkdir -p logs
+    - IMAGE_TAG=${IMAGE_TAG}-gpu docker compose run blb test 2>&1 | tee logs/gpu_tests.log
+  after_script:
+    - cd docker/v1.0-gpu
+    - docker compose down --remove-orphans 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - docker/v1.0-gpu/logs/
+    expire_in: 1 week
+  timeout: 30m

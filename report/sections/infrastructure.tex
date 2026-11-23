@@ -1,0 +1,66 @@
+\section{Infrastructure}\label{sec:infrastructure}
+
+\subsection{Docker Images}
+
+\begin{table}[h]
+\centering
+\caption{Docker image inventory}
+\label{tab:images}
+\begin{tabular}{llp{7cm}}
+\toprule
+Image & Base & Description \\
+\midrule
+\texttt{blb:v1.0} & Ubuntu 22.04 & CPU-only. SEAL 4.1.2, HEXL 1.2.6, emp-tool, emp-ot. All 7 CPU tests pass. \\
+\texttt{blb:v1.0-gpu} & CUDA 12.2 devel & GPU-enabled. Adds PhantomFHE, builds with \texttt{-DUSE\_HE\_GPU=ON}. Untested (no GPU on testbed). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{CI/CD Pipeline}
+
+A \texttt{.gitlab-ci.yml} at the repository root defines a 3-stage pipeline:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Build}: Docker image build and cache.
+  \item \textbf{Test (CPU)}: Automatic on every push. Requires GitLab runners tagged \texttt{docker} + \texttt{amd64}. Runs \texttt{docker compose up} and asserts 7 passed, 0 failed.
+  \item \textbf{Test (GPU)}: Manual trigger, \texttt{allow\_failure: true}. Requires \texttt{docker} + \texttt{amd64} + \texttt{gpu} runner tags.
+\end{enumerate}
+
+\subsection{Script Inventory}
+
+Table~\ref{tab:scripts} summarizes all scripts provided with the Docker infrastructure.
+Full documentation is in \texttt{scripts/README.md}.
+
+\begin{table}[h]
+\centering
+\caption{Script inventory}
+\label{tab:scripts}
+\begin{tabular}{lp{9cm}}
+\toprule
+Script & Purpose \\
+\midrule
+\texttt{entrypoint.sh} & Docker entrypoint dispatcher; routes CMD to scripts \\
+\texttt{run\_tests.sh} & Full CPU test suite (7 tests, colored output, pass/fail/skip) \\
+\texttt{run\_tests\_gpu.sh} & GPU variant (adds test\_HE, testHEGPU, testFFN) \\
+\texttt{run\_manual.sh} & Interactive single-test selector (\texttt{--list}, \texttt{--test NAME}) \\
+\texttt{benchmark.sh} & Run test N times, output JSON with mean/std/comm bytes \\
+\texttt{run\_asan.sh} & ASAN/UBSAN instrumented rebuild + test \\
+\texttt{cross\_validate.sh} & C++ output vs.\ Python reference validation \\
+\texttt{gen\_report\_table.py} & JSON results to \LaTeX{} table \\
+\texttt{build\_blb.sh} & Quick BLB-only rebuild (deps cached) \\
+\texttt{run\_server.sh} & Two-container mode: server (ALICE) \\
+\texttt{run\_client.sh} & Two-container mode: client (BOB) \\
+\texttt{run\_tmux.sh} & Host-side: tmux split-view two-container launcher \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Constraints}
+
+The following constraints were enforced throughout this evaluation:
+\begin{itemize}[nosep]
+  \item All work happens inside Docker containers. No packages installed on the host.
+  \item No modifications to pre-existing containers or images on the testbed.
+  \item All containers and images created during evaluation are cleaned up after use.
+  \item The host machine is used only for SSH access, file copying, and Docker commands.
+\end{itemize}

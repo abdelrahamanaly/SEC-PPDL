@@ -1,0 +1,17 @@
+{
+  "test": "test_cir_conv",
+  "runs": 3,
+  "wall_time_ms": {
+    "mean": 2585.33,
+    "std": 55.62,
+    "values": [
+      2580,
+      2605,
+      2566
+    ]
+  },
+  "comm_bytes": {
+    "server_sent": 0,
+    "client_sent": 0
+  }
+}

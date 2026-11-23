@@ -8,7 +8,29 @@
 
 See [cpp_coding_style.md](cpp_coding_style.md) for C++ coding conventions.
 
-## 1. Install Dependencies
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [scripts/README.md](scripts/README.md) | Detailed reference for all build, test, benchmark, and validation scripts |
+| [docker/README.md](docker/README.md) | Docker environment setup, quick start, environment variables, CI runner setup |
+| [CHANGELOG.md](CHANGELOG.md) | All changes to the codebase (Docker infra, scripts, fixes, validations) |
+| [RESULTS.md](RESULTS.md) | Benchmark results, stability validation (ASAN, 3x consistency, cross-validation) |
+
+## Docker Quick Start (Recommended)
+
+All tests and benchmarks can run inside Docker with zero host-machine changes. See [docker/README.md](docker/README.md) for full details, and [scripts/README.md](scripts/README.md) for every script option.
+
+```bash
+cd docker/v1.0
+docker compose up --build                           # build + run full test suite
+docker compose run --rm blb manual --list           # list available tests
+docker compose run --rm blb manual --test test_matmul  # run one test
+docker compose run --rm blb benchmark --test test_matmul --runs 5  # benchmark
+docker compose run --rm blb bash                    # interactive shell
+```
+
+## 1. Install Dependencies (Manual / Non-Docker)
 
 ### SEAL
 
